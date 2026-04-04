@@ -1,0 +1,8 @@
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "Use tokio::sync::Mutex for async code" },
+]
+disallowed-methods = [
+    { path = "std::fs::read_to_string", reason = "Use tokio::fs::read_to_string" },
+    { path = "std::fs::write", reason = "Use tokio::fs::write" },
+    { path = "std::process::Command::output", reason = "Use tokio::process::Command" },
+]

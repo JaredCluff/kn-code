@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Release ${{ matrix.target }}
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@628ddcba0c89d4a1eb687830f28e0b2fda46888b # stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }} -p kn-code-cli
+      - run: strip target/${{ matrix.target }}/release/kn-code
+        if: runner.os == 'Linux'
+      - run: strip target/${{ matrix.target }}/release/kn-code
+        if: runner.os == 'macOS'
+      - run: sha256sum target/${{ matrix.target }}/release/kn-code > target/${{ matrix.target }}/release/kn-code.sha256
+        if: runner.os == 'Linux'
+      - run: shasum -a 256 target/${{ matrix.target }}/release/kn-code > target/${{ matrix.target }}/release/kn-code.sha256
+        if: runner.os == 'macOS'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kn-code-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/kn-code
+            target/${{ matrix.target }}/release/kn-code.sha256
+
+  publish:
+    name: Publish Release
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: release
+    environment: release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+      - run: |
+          mkdir -p release-artifacts
+          cp kn-code-x86_64-unknown-linux-gnu/kn-code release-artifacts/kn-code-linux-amd64
+          cp kn-code-x86_64-unknown-linux-gnu/kn-code.sha256 release-artifacts/kn-code-linux-amd64.sha256
+          cp kn-code-x86_64-apple-darwin/kn-code release-artifacts/kn-code-darwin-amd64
+          cp kn-code-x86_64-apple-darwin/kn-code.sha256 release-artifacts/kn-code-darwin-amd64.sha256
+          cp kn-code-aarch64-apple-darwin/kn-code release-artifacts/kn-code-darwin-arm64
+          cp kn-code-aarch64-apple-darwin/kn-code.sha256 release-artifacts/kn-code-darwin-arm64.sha256
+          cd release-artifacts
+          sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@7b4da1151e8dfddd4c0e0c9e5b3a8a2daa8e1e1c # v2.2.0
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

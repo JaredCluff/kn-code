@@ -1,0 +1,22 @@
+[package]
+name = "kn-code-providers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kn-code-auth = { path = "../kn-code-auth" }
+kn-code-config = { path = "../kn-code-config" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+secrecy.workspace = true
+futures = "0.3"
+async-trait = "0.1"

@@ -1,0 +1,93 @@
+[workspace]
+members = [
+    "crates/kn-code",
+    "crates/kn-code-cli",
+    "crates/kn-code-server",
+    "crates/kn-code-providers",
+    "crates/kn-code-tools",
+    "crates/kn-code-auth",
+    "crates/kn-code-session",
+    "crates/kn-code-atomic",
+    "crates/kn-code-plugins",
+    "crates/kn-code-permissions",
+    "crates/kn-code-config",
+    "crates/kn-code-sdk",
+    "crates/kn-code-test-utils",
+    "crates/kn-code-voice",
+    "crates/kn-code-nats",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/knowledge-nexus/kn-code"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tokio-stream = "0.1"
+axum = { version = "0.8", features = ["ws", "macros", "http2"] }
+reqwest = { version = "0.12", features = ["json", "stream", "gzip", "brotli"] }
+hyper = "1"
+hyper-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+wasmtime = "25"
+wasmtime-wasi = "25"
+wit-bindgen = "0.32"
+clap = { version = "4", features = ["derive", "env"] }
+ratatui = "0.28"
+crossterm = "0.28"
+ring = "0.17"
+sha2 = "0.10"
+hmac = "0.12"
+age = "0.10"
+secrecy = { version = "0.8", features = ["serde"] }
+keyring = "3"
+jsonwebtoken = "9"
+notify = "6"
+globset = "0.4"
+ignore = "0.4"
+tempfile = "3"
+fs4 = "0.12"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
+html2md = "0.2"
+comrak = "0.31"
+git2 = "0.19"
+similar = "2"
+schemars = "0.8"
+thiserror = "2"
+anyhow = "1"
+mockito = "1"
+wiremock = "0.6"
+base64 = "0.22"
+urlencoding = "2"
+async-trait = "0.1"
+futures = "0.3"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+dirs = "5"
+async-nats = "0.38"
+hickory-resolver = { version = "0.24", features = ["tokio", "system-config"] }
+tower-service = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "unwind"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.bench]
+inherits = "release"

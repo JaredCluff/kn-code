@@ -1,0 +1,31 @@
+[package]
+name = "kn-code-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+secrecy.workspace = true
+sha2.workspace = true
+ring.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+url.workspace = true
+keyring = { workspace = true, optional = true }
+base64.workspace = true
+urlencoding.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+zeroize = { version = "1", features = ["derive"] }
+argon2 = "0.5"
+rand = "0.8"
+tracing.workspace = true
+
+[features]
+default = []
+keychain = ["dep:keyring"]

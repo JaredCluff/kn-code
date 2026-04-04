@@ -1,0 +1,6 @@
+/target/
+**/*.rs.bk
+*.pdb
+.env
+.kn-code/
+*.wasm

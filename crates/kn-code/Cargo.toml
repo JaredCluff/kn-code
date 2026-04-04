@@ -1,0 +1,28 @@
+[package]
+name = "kn-code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A high-performance, headless-first AI coding agent built in Rust"
+
+[dependencies]
+kn-code-config = { path = "../kn-code-config" }
+kn-code-auth = { path = "../kn-code-auth" }
+kn-code-providers = { path = "../kn-code-providers" }
+kn-code-tools = { path = "../kn-code-tools" }
+kn-code-permissions = { path = "../kn-code-permissions" }
+kn-code-session = { path = "../kn-code-session" }
+kn-code-atomic = { path = "../kn-code-atomic" }
+kn-code-plugins = { path = "../kn-code-plugins" }
+kn-code-server = { path = "../kn-code-server" }
+kn-code-nats = { path = "../kn-code-nats", optional = true }
+kn-code-voice = { path = "../kn-code-voice", optional = true }
+anyhow.workspace = true
+tracing.workspace = true
+
+[features]
+default = []
+voice = ["dep:kn-code-voice"]
+nats = ["dep:kn-code-nats"]
+full = ["voice", "nats"]

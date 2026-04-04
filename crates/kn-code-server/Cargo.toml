@@ -1,0 +1,34 @@
+[package]
+name = "kn-code-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kn-code-config = { path = "../kn-code-config" }
+kn-code-auth = { path = "../kn-code-auth" }
+kn-code-providers = { path = "../kn-code-providers" }
+kn-code-tools = { path = "../kn-code-tools" }
+kn-code-nats = { path = "../kn-code-nats" }
+kn-code-session = { path = "../kn-code-session" }
+kn-code-voice = { path = "../kn-code-voice" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tokio-stream.workspace = true
+futures = "0.3"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
+jsonwebtoken.workspace = true
+secrecy.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+dirs = "5"

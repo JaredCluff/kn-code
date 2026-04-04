@@ -1,0 +1,28 @@
+[package]
+name = "kn-code-nats"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kn-code-config = { path = "../kn-code-config" }
+kn-code-permissions = { path = "../kn-code-permissions" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+async-nats = "0.38"
+futures.workspace = true
+tokio-util = "0.7"
+url.workspace = true
+secrecy.workspace = true
+
+[features]
+default = ["jetstream", "kv"]
+jetstream = []
+kv = []
