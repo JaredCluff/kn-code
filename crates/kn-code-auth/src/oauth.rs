@@ -43,7 +43,8 @@ impl OAuthFlow {
     }
 
     pub fn build_authorize_url(&self, pkce_challenge: &str, state: &str) -> String {
-        let params = [("client_id", self.config.client_id.clone()),
+        let params = [
+            ("client_id", self.config.client_id.clone()),
             (
                 "redirect_uri",
                 format!("http://localhost:{}/callback", self.config.redirect_port),
@@ -52,7 +53,8 @@ impl OAuthFlow {
             ("scope", self.config.scopes.join(" ")),
             ("code_challenge", pkce_challenge.to_string()),
             ("code_challenge_method", "S256".to_string()),
-            ("state", state.to_string())];
+            ("state", state.to_string()),
+        ];
 
         let query: String = params
             .iter()
@@ -68,6 +70,12 @@ impl OAuthFlow {
         code: &str,
         code_verifier: &str,
     ) -> anyhow::Result<TokenResponse> {
+        let token_url = url::Url::parse(&self.config.token_url)
+            .map_err(|e| anyhow::anyhow!("Invalid token URL: {}", e))?;
+        if token_url.scheme() != "https" {
+            anyhow::bail!("Token URL must use HTTPS: {}", self.config.token_url);
+        }
+
         let client = reqwest::Client::new();
         let redirect_uri = format!("http://localhost:{}/callback", self.config.redirect_port);
         let mut params = HashMap::new();
@@ -120,6 +128,12 @@ impl OAuthFlow {
     }
 
     pub async fn refresh_token(&self, refresh_token: &str) -> anyhow::Result<TokenResponse> {
+        let token_url = url::Url::parse(&self.config.token_url)
+            .map_err(|e| anyhow::anyhow!("Invalid token URL: {}", e))?;
+        if token_url.scheme() != "https" {
+            anyhow::bail!("Token URL must use HTTPS: {}", self.config.token_url);
+        }
+
         let client = reqwest::Client::new();
         let mut params = HashMap::new();
         params.insert("grant_type", "refresh_token");

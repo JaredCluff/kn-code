@@ -102,14 +102,28 @@ impl SessionStore {
         Ok(Some(record))
     }
 
+    const MAX_MESSAGES_FILE_SIZE: u64 = 50 * 1024 * 1024;
+
     pub async fn append_message(&self, session_id: &str, message: &Message) -> anyhow::Result<()> {
         let lock = self.get_session_lock(session_id).await;
         let _guard = lock.lock().await;
         let dir = self.session_dir(session_id);
+        let path = dir.join("messages.jsonl");
+
+        if path.exists() {
+            let metadata = tokio::fs::metadata(&path).await?;
+            if metadata.len() >= Self::MAX_MESSAGES_FILE_SIZE {
+                anyhow::bail!(
+                    "Session transcript exceeded {} MB limit. Use compaction or start a new session.",
+                    Self::MAX_MESSAGES_FILE_SIZE / 1024 / 1024
+                );
+            }
+        }
+
         let file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(dir.join("messages.jsonl"))
+            .open(&path)
             .await?;
 
         use tokio::io::AsyncWriteExt;

@@ -1,10 +1,11 @@
 use axum::Json;
+use axum::extract::State;
 use kn_code_auth::{Credentials, FileTokenStore, TokenStore};
-use kn_code_config::Settings;
 use kn_code_providers::anthropic::AnthropicProvider;
 use kn_code_providers::openai::OpenAIProvider;
 use kn_code_providers::traits::Provider;
 use serde::Serialize;
+use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct ProviderInfo {
@@ -15,16 +16,19 @@ pub struct ProviderInfo {
     pub models: Vec<String>,
 }
 
+pub struct ProvidersState {
+    pub token_store: Arc<FileTokenStore>,
+}
+
 async fn load_provider_creds(store: &FileTokenStore, provider: &str) -> Option<Credentials> {
     store.load(provider).await.ok().flatten()
 }
 
-pub async fn list_providers() -> Json<Vec<ProviderInfo>> {
-    let token_store = Settings::config_dir().join("tokens.enc");
-    let store = FileTokenStore::new(token_store);
+pub async fn list_providers(state: State<Arc<ProvidersState>>) -> Json<Vec<ProviderInfo>> {
+    let store = &state.0.token_store;
 
-    let anthropic_creds = load_provider_creds(&store, "anthropic").await;
-    let openai_creds = load_provider_creds(&store, "openai").await;
+    let anthropic_creds = load_provider_creds(store, "anthropic").await;
+    let openai_creds = load_provider_creds(store, "openai").await;
 
     let mut providers = Vec::new();
 

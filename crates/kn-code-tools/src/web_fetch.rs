@@ -9,7 +9,7 @@ use tokio::sync::OnceCell;
 
 static HTTP_CLIENT: OnceCell<Result<reqwest::Client, anyhow::Error>> = OnceCell::const_new();
 
-async fn get_http_client() -> &'static reqwest::Client {
+async fn get_http_client() -> Result<&'static reqwest::Client, anyhow::Error> {
     HTTP_CLIENT
         .get_or_init(|| async {
             let resolver = TokioAsyncResolver::tokio_from_system_conf()
@@ -34,7 +34,7 @@ async fn get_http_client() -> &'static reqwest::Client {
         })
         .await
         .as_ref()
-        .expect("HTTP client initialization failed — this is a fatal configuration error")
+        .map_err(|e| anyhow::anyhow!("HTTP client unavailable: {}", e))
 }
 
 struct SafeDnsResolver {
@@ -223,7 +223,9 @@ impl Tool for WebFetchTool {
 
         let max_length = parsed.max_length.unwrap_or(1_000_000);
 
-        let client = get_http_client().await;
+        let client = get_http_client()
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("HTTP client unavailable: {}", e)))?;
 
         let response = client
             .get(&parsed.url)

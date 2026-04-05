@@ -221,7 +221,12 @@ async fn cmd_run(
         _ => kn_code_permissions::rules::PermissionMode::BypassPermissions,
     };
 
-    let (provider, model_info) = kn_code_providers::resolve_provider(&model_str);
+    let Some((provider, model_info)) = kn_code_providers::resolve_provider(&model_str) else {
+        anyhow::bail!(
+            "Unknown provider prefix in model '{}'. Supported: anthropic/, openai/, github_copilot/",
+            model_str
+        );
+    };
     let runner = kn_code_session::runner::AgentRunner {
         session_store: session_store.clone(),
         token_store,

@@ -138,14 +138,28 @@ impl Server {
 
         let run_state = Arc::new(run::RunState {
             session_store: session_store.clone(),
-            token_store,
+            token_store: token_store.clone(),
             tools,
+        });
+
+        let models_state = Arc::new(models::ModelsState {
+            token_store: token_store.clone(),
+        });
+
+        let providers_state = Arc::new(providers::ProvidersState {
+            token_store: token_store.clone(),
         });
 
         let public_routes = Router::new()
             .route("/health", get(health::health))
-            .route("/v1/providers", get(providers::list_providers))
-            .route("/v1/models", get(models::list_models))
+            .route(
+                "/v1/providers",
+                get(providers::list_providers).with_state(providers_state.clone()),
+            )
+            .route(
+                "/v1/models",
+                get(models::list_models).with_state(models_state.clone()),
+            )
             .layer(cors.clone());
 
         let session_routes = Router::new()

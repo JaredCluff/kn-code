@@ -108,70 +108,33 @@ pub async fn cancel_session(
     }
 
     let store = &state.0.session_store;
-    let dir = store.session_dir(&session_id);
-    let session_json = dir.join("session.json");
 
-    if !session_json.exists() {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
+    match store.update_session_state(&session_id, "cancelled").await {
+        Ok(()) => (
+            axum::http::StatusCode::OK,
             Json(serde_json::json!({
-                "error": format!("Session not found: {}", session_id),
+                "status": "cancelled",
+                "session_id": session_id,
             })),
-        );
-    }
-
-    match store.load_session(&session_id).await {
-        Ok(Some(mut record)) => {
-            record.state = "cancelled".to_string();
-            record.updated_at = chrono::Utc::now();
-            let json = match serde_json::to_string_pretty(&record) {
-                Ok(j) => j,
-                Err(e) => {
-                    return (
-                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({
-                            "error": format!("Failed to serialize session: {}", e),
-                        })),
-                    );
-                }
-            };
-            let tmp_path = dir.join("session.json.tmp");
-            if let Err(e) = tokio::fs::write(&tmp_path, &json).await {
-                return (
+        ),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") {
+                (
+                    axum::http::StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({
+                        "error": format!("Session not found: {}", session_id),
+                    })),
+                )
+            } else {
+                (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({
-                        "error": format!("Failed to write session: {}", e),
+                        "error": format!("Failed to cancel session: {}", e),
                     })),
-                );
+                )
             }
-            if let Err(e) = tokio::fs::rename(&tmp_path, &session_json).await {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("Failed to update session: {}", e),
-                    })),
-                );
-            }
-            (
-                axum::http::StatusCode::OK,
-                Json(serde_json::json!({
-                    "status": "cancelled",
-                    "session_id": session_id,
-                })),
-            )
         }
-        Ok(None) => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": format!("Session not found: {}", session_id),
-            })),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": format!("Failed to load session: {}", e),
-            })),
-        ),
     }
 }
 

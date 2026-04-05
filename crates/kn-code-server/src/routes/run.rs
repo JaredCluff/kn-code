@@ -193,7 +193,16 @@ pub async fn run_agent(
     let session_store_for_runner = session_store.clone();
 
     tokio::spawn(async move {
-        let (provider, model_info) = resolve_provider(&model_clone);
+        let Some((provider, model_info)) = resolve_provider(&model_clone) else {
+            tracing::error!(
+                model = model_clone,
+                "Unknown provider prefix — supported: anthropic, openai, github_copilot"
+            );
+            let _ = session_store
+                .update_session_state(&session_id_clone, "error")
+                .await;
+            return;
+        };
         let runner = AgentRunner {
             session_store: session_store_for_runner,
             token_store,

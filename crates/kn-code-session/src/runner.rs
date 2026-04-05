@@ -1,3 +1,4 @@
+use crate::compact::Compactor;
 use crate::messages::{
     AssistantMessage, ContentBlock as SessionContentBlock, Message, ToolCall, ToolMessage,
 };
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 const MAX_TURNS: u64 = 100;
+const COMPACTION_TOKEN_THRESHOLD: usize = 180_000;
 
 pub struct AgentRunner {
     pub session_store: Arc<SessionStore>,
@@ -37,6 +39,8 @@ pub struct AgentRunResult {
     pub cost_usd: f64,
 }
 
+const TERMINAL_STOP_REASONS: &[&str] = &["stop", "end_turn", "max_tokens"];
+
 impl AgentRunner {
     pub async fn run(&self, session_id: &str) -> anyhow::Result<AgentRunResult> {
         let record = self
@@ -55,6 +59,7 @@ impl AgentRunner {
         let mut turns_completed = 0u64;
         let mut total_input_tokens = 0u64;
         let mut total_output_tokens = 0u64;
+        let mut estimated_tokens = estimate_tokens_from_messages(&all_messages);
 
         let credentials = self
             .token_store
@@ -95,34 +100,54 @@ impl AgentRunner {
             .build_string()
             .await;
 
+        let compactor = Compactor::default();
+
         for _turn in 0..max_turns {
-            if let Some(ref token) = self.cancellation_token
-                && token.is_cancelled()
-            {
-                self.session_store
-                    .update_session_state(session_id, "cancelled")
-                    .await?;
-                return Ok(AgentRunResult {
-                    session_id: session_id.to_string(),
-                    stop_reason: "cancelled".to_string(),
-                    turns_completed,
-                    input_tokens: total_input_tokens,
-                    output_tokens: total_output_tokens,
-                    cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
-                });
+            if let Some(ref token) = self.cancellation_token {
+                if token.is_cancelled() {
+                    self.session_store
+                        .update_session_state(session_id, "cancelled")
+                        .await?;
+                    return self.finish_result(
+                        session_id,
+                        "cancelled",
+                        turns_completed,
+                        total_input_tokens,
+                        total_output_tokens,
+                    );
+                }
             }
 
-            if let Ok(Some(updated_record)) = self.session_store.load_session(session_id).await
-                && updated_record.state == "cancelled"
+            if let Ok(Some(updated_record)) = self.session_store.load_session(session_id).await {
+                if updated_record.state == "cancelled" {
+                    return self.finish_result(
+                        session_id,
+                        "cancelled",
+                        turns_completed,
+                        total_input_tokens,
+                        total_output_tokens,
+                    );
+                }
+            }
+
+            if estimated_tokens > COMPACTION_TOKEN_THRESHOLD
+                && compactor.needs_compaction(estimated_tokens)
             {
-                return Ok(AgentRunResult {
-                    session_id: session_id.to_string(),
-                    stop_reason: "cancelled".to_string(),
-                    turns_completed,
-                    input_tokens: total_input_tokens,
-                    output_tokens: total_output_tokens,
-                    cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
-                });
+                match compactor.compact(all_messages.clone()) {
+                    Ok(compacted) => {
+                        let removed = all_messages.len().saturating_sub(compacted.len());
+                        tracing::info!(
+                            session_id,
+                            removed,
+                            "Compacted session messages to stay within context window"
+                        );
+                        all_messages = compacted;
+                        estimated_tokens = estimate_tokens_from_messages(&all_messages);
+                    }
+                    Err(e) => {
+                        tracing::warn!(session_id, "Compaction failed: {}", e);
+                    }
+                }
             }
 
             let provider_messages = session_messages_to_provider(&all_messages)?;
@@ -157,6 +182,8 @@ impl AgentRunner {
 
             total_input_tokens += response.usage.input_tokens;
             total_output_tokens += response.usage.output_tokens;
+            estimated_tokens +=
+                (response.usage.input_tokens + response.usage.output_tokens) as usize;
 
             let mut assistant_content = Vec::new();
             let mut assistant_tool_calls = Vec::new();
@@ -198,6 +225,7 @@ impl AgentRunner {
             all_messages.push(assistant_msg);
 
             let stop_reason = response.stop_reason.as_deref().unwrap_or("end_turn");
+            let is_terminal = TERMINAL_STOP_REASONS.contains(&stop_reason);
 
             if assistant_tool_calls.is_empty() {
                 let state = if stop_reason == "max_tokens" {
@@ -209,27 +237,20 @@ impl AgentRunner {
                     .update_session_state(session_id, state)
                     .await?;
 
-                if stop_reason == "tool_use" {
-                    tracing::warn!(
-                        session_id,
-                        "Provider returned stop_reason=tool_use but no tool calls — response may be truncated"
-                    );
-                }
-
-                return Ok(AgentRunResult {
-                    session_id: session_id.to_string(),
-                    stop_reason: stop_reason.to_string(),
-                    turns_completed: turns_completed + 1,
-                    input_tokens: total_input_tokens,
-                    output_tokens: total_output_tokens,
-                    cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
-                });
+                return self.finish_result(
+                    session_id,
+                    stop_reason,
+                    turns_completed + 1,
+                    total_input_tokens,
+                    total_output_tokens,
+                );
             }
 
-            if stop_reason == "max_tokens" {
+            if is_terminal && !assistant_tool_calls.is_empty() {
                 tracing::warn!(
                     session_id,
-                    "Provider returned stop_reason=max_tokens with pending tool calls"
+                    stop_reason,
+                    "Provider returned terminal stop_reason with pending tool calls — executing remaining calls then stopping"
                 );
             }
 
@@ -274,10 +295,9 @@ impl AgentRunner {
                                 {
                                     Ok(result) => match result.content {
                                         ToolContent::Text(t) => (t, false),
-                                        ToolContent::Image {
-                                            base64: _,
-                                            media_type,
-                                        } => (format!("[Image: {}]", media_type), false),
+                                        ToolContent::Image { media_type, .. } => {
+                                            (format!("[Image: {}]", media_type), false)
+                                        }
                                         ToolContent::Multi(blocks) => {
                                             let parts: Vec<_> = blocks
                                                 .iter()
@@ -325,7 +345,7 @@ impl AgentRunner {
                     tool_use_id: tool_call.id.clone(),
                     tool_name: tool_call.name.clone(),
                     input: tool_call.input.clone(),
-                    output: content,
+                    output: content.clone(),
                     is_error,
                     duration_ms: None,
                     timestamp: chrono::Utc::now(),
@@ -335,22 +355,58 @@ impl AgentRunner {
                     .append_message(session_id, &tool_result_msg)
                     .await?;
                 all_messages.push(tool_result_msg);
+                estimated_tokens += content.len() / 4;
             }
 
             turns_completed += 1;
+
+            if is_terminal {
+                let state = if stop_reason == "max_tokens" {
+                    "max_tokens_reached"
+                } else {
+                    "completed"
+                };
+                self.session_store
+                    .update_session_state(session_id, state)
+                    .await?;
+                return self.finish_result(
+                    session_id,
+                    stop_reason,
+                    turns_completed,
+                    total_input_tokens,
+                    total_output_tokens,
+                );
+            }
         }
 
         self.session_store
             .update_session_state(session_id, "max_turns_reached")
             .await?;
 
+        self.finish_result(
+            session_id,
+            "max_turns",
+            turns_completed,
+            total_input_tokens,
+            total_output_tokens,
+        )
+    }
+
+    fn finish_result(
+        &self,
+        session_id: &str,
+        stop_reason: &str,
+        turns_completed: u64,
+        input_tokens: u64,
+        output_tokens: u64,
+    ) -> anyhow::Result<AgentRunResult> {
         Ok(AgentRunResult {
             session_id: session_id.to_string(),
-            stop_reason: "max_turns".to_string(),
+            stop_reason: stop_reason.to_string(),
             turns_completed,
-            input_tokens: total_input_tokens,
-            output_tokens: total_output_tokens,
-            cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
+            input_tokens,
+            output_tokens,
+            cost_usd: self.calculate_cost(input_tokens, output_tokens),
         })
     }
 
@@ -363,6 +419,35 @@ impl AgentRunner {
             0.0
         }
     }
+}
+
+fn estimate_tokens_from_messages(messages: &[Message]) -> usize {
+    let mut total = 0;
+    for msg in messages {
+        match msg {
+            Message::User(u) => {
+                for block in &u.content {
+                    if let SessionContentBlock::Text(t) = block {
+                        total += t.len() / 4;
+                    }
+                }
+            }
+            Message::Assistant(a) => {
+                for block in &a.content {
+                    if let SessionContentBlock::Text(t) = block {
+                        total += t.len() / 4;
+                    }
+                }
+            }
+            Message::Tool(t) => {
+                total += t.output.len() / 4;
+            }
+            Message::System(s) => {
+                total += s.content.len() / 4;
+            }
+        }
+    }
+    total
 }
 
 fn session_messages_to_provider(messages: &[Message]) -> anyhow::Result<Vec<ProviderChatMessage>> {

@@ -1,10 +1,11 @@
 use axum::Json;
+use axum::extract::State;
 use kn_code_auth::{FileTokenStore, TokenStore};
-use kn_code_config::Settings;
 use kn_code_providers::anthropic::AnthropicProvider;
 use kn_code_providers::openai::OpenAIProvider;
 use kn_code_providers::traits::Provider;
 use serde::Serialize;
+use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct ModelInfo {
@@ -14,9 +15,12 @@ pub struct ModelInfo {
     pub context_window: usize,
 }
 
-pub async fn list_models() -> Json<Vec<ModelInfo>> {
-    let token_store = Settings::config_dir().join("tokens.enc");
-    let store = FileTokenStore::new(token_store);
+pub struct ModelsState {
+    pub token_store: Arc<FileTokenStore>,
+}
+
+pub async fn list_models(state: State<Arc<ModelsState>>) -> Json<Vec<ModelInfo>> {
+    let store = &state.0.token_store;
 
     let anthropic_creds = store.load("anthropic").await.ok().flatten();
     let openai_creds = store.load("openai").await.ok().flatten();
@@ -24,16 +28,16 @@ pub async fn list_models() -> Json<Vec<ModelInfo>> {
     let mut all_models = Vec::new();
 
     let anthropic = AnthropicProvider::default();
-    if let Some(creds) = &anthropic_creds
-        && let Ok(models) = anthropic.list_models(creds).await
-    {
-        for m in models {
-            all_models.push(ModelInfo {
-                id: format!("{}/{}", m.provider, m.id),
-                provider: m.provider,
-                name: m.name,
-                context_window: m.context_window,
-            });
+    if let Some(creds) = &anthropic_creds {
+        if let Ok(models) = anthropic.list_models(creds).await {
+            for m in models {
+                all_models.push(ModelInfo {
+                    id: format!("{}/{}", m.provider, m.id),
+                    provider: m.provider,
+                    name: m.name,
+                    context_window: m.context_window,
+                });
+            }
         }
     }
     if anthropic_creds.is_none() {
