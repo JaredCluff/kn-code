@@ -196,9 +196,10 @@ impl CompatibleProvider {
         let mut content = Vec::new();
 
         if let Some(text) = message.get("content").and_then(|v| v.as_str())
-            && !text.is_empty() {
-                content.push(ContentBlock::Text(text.to_string()));
-            }
+            && !text.is_empty()
+        {
+            content.push(ContentBlock::Text(text.to_string()));
+        }
 
         if let Some(tool_calls) = message.get("tool_calls").and_then(|v| v.as_array()) {
             let empty_fn = serde_json::json!({});
@@ -278,9 +279,10 @@ impl CompatibleProvider {
         let mut events = Vec::new();
 
         if let Some(text) = delta.get("content").and_then(|v| v.as_str())
-            && !text.is_empty() {
-                events.push(Ok(StreamEvent::Text(text.to_string())));
-            }
+            && !text.is_empty()
+        {
+            events.push(Ok(StreamEvent::Text(text.to_string())));
+        }
 
         if let Some(tool_calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
             for tc in tool_calls {
@@ -543,9 +545,10 @@ impl Provider for CompatibleProvider {
 
                                 if !trimmed.is_empty()
                                     && let Some(event) = Self::parse_stream_line(trimmed)
-                                        && tx.send(event).await.is_err() {
-                                            return;
-                                        }
+                                    && tx.send(event).await.is_err()
+                                {
+                                    return;
+                                }
                             }
                         }
                         Err(e) => {

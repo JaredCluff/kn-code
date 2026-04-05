@@ -47,6 +47,47 @@ impl AnthropicProvider {
         self
     }
 
+    pub fn list_models_sync(&self) -> Vec<ModelInfo> {
+        vec![
+            ModelInfo {
+                id: "claude-sonnet-4-5".to_string(),
+                provider: "anthropic".to_string(),
+                name: "Claude Sonnet 4.5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 8192,
+                input_price_per_million: 3.0,
+                output_price_per_million: 15.0,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: true,
+            },
+            ModelInfo {
+                id: "claude-opus-4-5".to_string(),
+                provider: "anthropic".to_string(),
+                name: "Claude Opus 4.5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 8192,
+                input_price_per_million: 15.0,
+                output_price_per_million: 75.0,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: true,
+            },
+            ModelInfo {
+                id: "claude-haiku-4-5".to_string(),
+                provider: "anthropic".to_string(),
+                name: "Claude Haiku 4.5".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 8192,
+                input_price_per_million: 0.8,
+                output_price_per_million: 4.0,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: true,
+            },
+        ]
+    }
+
     async fn with_retry<T, F, Fut>(&self, mut f: F) -> Result<T, ProviderError>
     where
         F: FnMut() -> Fut,

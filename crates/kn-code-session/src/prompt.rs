@@ -52,6 +52,16 @@ impl SystemPromptBuilder {
         }
     }
 
+    pub fn with_tool_descriptions(mut self, descriptions: Vec<String>) -> Self {
+        self.tool_descriptions = descriptions;
+        self
+    }
+
+    pub fn with_permission_mode_prompt(mut self, prompt: String) -> Self {
+        self.permission_mode_prompt = prompt;
+        self
+    }
+
     fn default_core_identity() -> String {
         r#"You are kn-code, an AI coding agent running in a terminal environment.
 

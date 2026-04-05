@@ -1,6 +1,7 @@
 use crate::messages::{
     AssistantMessage, ContentBlock as SessionContentBlock, Message, ToolCall, ToolMessage,
 };
+use crate::prompt::SystemPromptBuilder;
 use crate::store::SessionStore;
 use kn_code_auth::TokenStore;
 use kn_code_permissions::rules::{PermissionContext, PermissionDecision, PermissionMode};
@@ -65,33 +66,64 @@ impl AgentRunner {
 
         let max_turns = self.max_turns.min(MAX_TURNS);
 
+        let tool_descriptions: Vec<String> = self
+            .tools
+            .iter()
+            .map(|t| {
+                format!(
+                    "## {}\n{}\n\nInput schema:\n```json\n{}\n```",
+                    t.name(),
+                    t.description(),
+                    serde_json::to_string_pretty(&t.input_schema()).unwrap_or_default()
+                )
+            })
+            .collect();
+
+        let permission_mode_prompt = match self.permission_mode {
+            PermissionMode::Auto => "You are in AUTO mode. All tool calls are automatically approved. Use tools freely.",
+            PermissionMode::Ask => "You are in ASK mode. Each tool call requires user approval. Explain what you want to do before calling tools.",
+            PermissionMode::AcceptEdits => "You are in ACCEPT_EDITS mode. File read/write/edit tools are auto-approved. Bash commands require approval.",
+            PermissionMode::Plan => "You are in PLAN mode. Do NOT call any tools. Only provide analysis and recommendations.",
+            PermissionMode::BypassPermissions => "All tool calls are automatically approved.",
+        }
+        .to_string();
+
+        let system_prompt_builder = SystemPromptBuilder::new(self.cwd.clone());
+        let system_prompt = system_prompt_builder
+            .with_tool_descriptions(tool_descriptions)
+            .with_permission_mode_prompt(permission_mode_prompt)
+            .build_string()
+            .await;
+
         for _turn in 0..max_turns {
             if let Some(ref token) = self.cancellation_token
-                && token.is_cancelled() {
-                    self.session_store
-                        .update_session_state(session_id, "cancelled")
-                        .await?;
-                    return Ok(AgentRunResult {
-                        session_id: session_id.to_string(),
-                        stop_reason: "cancelled".to_string(),
-                        turns_completed,
-                        input_tokens: total_input_tokens,
-                        output_tokens: total_output_tokens,
-                        cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
-                    });
-                }
+                && token.is_cancelled()
+            {
+                self.session_store
+                    .update_session_state(session_id, "cancelled")
+                    .await?;
+                return Ok(AgentRunResult {
+                    session_id: session_id.to_string(),
+                    stop_reason: "cancelled".to_string(),
+                    turns_completed,
+                    input_tokens: total_input_tokens,
+                    output_tokens: total_output_tokens,
+                    cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
+                });
+            }
 
             if let Ok(Some(updated_record)) = self.session_store.load_session(session_id).await
-                && updated_record.state == "cancelled" {
-                    return Ok(AgentRunResult {
-                        session_id: session_id.to_string(),
-                        stop_reason: "cancelled".to_string(),
-                        turns_completed,
-                        input_tokens: total_input_tokens,
-                        output_tokens: total_output_tokens,
-                        cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
-                    });
-                }
+                && updated_record.state == "cancelled"
+            {
+                return Ok(AgentRunResult {
+                    session_id: session_id.to_string(),
+                    stop_reason: "cancelled".to_string(),
+                    turns_completed,
+                    input_tokens: total_input_tokens,
+                    output_tokens: total_output_tokens,
+                    cost_usd: self.calculate_cost(total_input_tokens, total_output_tokens),
+                });
+            }
 
             let provider_messages = session_messages_to_provider(&all_messages)?;
             let tool_defs: Vec<ToolDefinition> = self
@@ -117,7 +149,7 @@ impl AgentRunner {
                 top_p: None,
                 max_tokens: None,
                 stream: false,
-                system: None,
+                system: Some(system_prompt.clone()),
                 variant: None,
             };
 
@@ -242,9 +274,10 @@ impl AgentRunner {
                                 {
                                     Ok(result) => match result.content {
                                         ToolContent::Text(t) => (t, false),
-                                        ToolContent::Image { base64: _, media_type } => {
-                                            (format!("[Image: {}]", media_type), false)
-                                        }
+                                        ToolContent::Image {
+                                            base64: _,
+                                            media_type,
+                                        } => (format!("[Image: {}]", media_type), false),
                                         ToolContent::Multi(blocks) => {
                                             let parts: Vec<_> = blocks
                                                 .iter()

@@ -3,7 +3,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use kn_code_auth::FileTokenStore;
 use kn_code_permissions::rules::PermissionMode;
-use kn_code_providers::anthropic::AnthropicProvider;
+use kn_code_providers::resolve_provider;
 use kn_code_session::SessionStore;
 use kn_code_session::messages::{ContentBlock, Message, UserMessage};
 use kn_code_session::runner::AgentRunner;
@@ -189,10 +189,11 @@ pub async fn run_agent(
     let max_turns = req.max_turns.unwrap_or(50);
     let session_id_clone = session_id.clone();
     let cwd_clone = cwd.clone();
+    let model_clone = model.clone();
     let session_store_for_runner = session_store.clone();
 
     tokio::spawn(async move {
-        let provider = Arc::new(AnthropicProvider::default());
+        let (provider, model_info) = resolve_provider(&model_clone);
         let runner = AgentRunner {
             session_store: session_store_for_runner,
             token_store,
@@ -201,7 +202,7 @@ pub async fn run_agent(
             permission_mode,
             max_turns,
             cwd: cwd_clone,
-            model_info: None,
+            model_info,
             cancellation_token: None,
         };
 

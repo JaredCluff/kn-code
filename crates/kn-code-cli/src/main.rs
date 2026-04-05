@@ -221,7 +221,7 @@ async fn cmd_run(
         _ => kn_code_permissions::rules::PermissionMode::BypassPermissions,
     };
 
-    let provider = Arc::new(kn_code_providers::anthropic::AnthropicProvider::default());
+    let (provider, model_info) = kn_code_providers::resolve_provider(&model_str);
     let runner = kn_code_session::runner::AgentRunner {
         session_store: session_store.clone(),
         token_store,
@@ -230,7 +230,7 @@ async fn cmd_run(
         permission_mode: perm_mode,
         max_turns: max_turns.unwrap_or(50),
         cwd,
-        model_info: None,
+        model_info,
         cancellation_token: None,
     };
 

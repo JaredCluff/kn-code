@@ -39,6 +39,35 @@ impl OpenAIProvider {
         self
     }
 
+    pub fn list_models_sync(&self) -> Vec<ModelInfo> {
+        vec![
+            ModelInfo {
+                id: "gpt-4o".to_string(),
+                provider: "openai".to_string(),
+                name: "GPT-4o".to_string(),
+                context_window: 128_000,
+                max_output_tokens: 16384,
+                input_price_per_million: 2.5,
+                output_price_per_million: 10.0,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: false,
+            },
+            ModelInfo {
+                id: "o1".to_string(),
+                provider: "openai".to_string(),
+                name: "o1".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 100000,
+                input_price_per_million: 15.0,
+                output_price_per_million: 60.0,
+                supports_tools: true,
+                supports_vision: false,
+                supports_reasoning: true,
+            },
+        ]
+    }
+
     async fn with_retry<T, F, Fut>(&self, mut f: F) -> Result<T, ProviderError>
     where
         F: FnMut() -> Fut,
@@ -203,9 +232,10 @@ impl OpenAIProvider {
         let mut content = Vec::new();
 
         if let Some(text) = message.get("content").and_then(|v| v.as_str())
-            && !text.is_empty() {
-                content.push(ContentBlock::Text(text.to_string()));
-            }
+            && !text.is_empty()
+        {
+            content.push(ContentBlock::Text(text.to_string()));
+        }
 
         if let Some(tool_calls) = message.get("tool_calls").and_then(|v| v.as_array()) {
             let empty_fn = serde_json::json!({});
@@ -285,9 +315,10 @@ impl OpenAIProvider {
         let mut events = Vec::new();
 
         if let Some(text) = delta.get("content").and_then(|v| v.as_str())
-            && !text.is_empty() {
-                events.push(Ok(StreamEvent::Text(text.to_string())));
-            }
+            && !text.is_empty()
+        {
+            events.push(Ok(StreamEvent::Text(text.to_string())));
+        }
 
         if let Some(tool_calls) = delta.get("tool_calls").and_then(|v| v.as_array()) {
             for tc in tool_calls {
@@ -554,9 +585,10 @@ impl Provider for OpenAIProvider {
 
                                 if !trimmed.is_empty()
                                     && let Some(event) = Self::parse_stream_line(trimmed)
-                                        && tx.send(event).await.is_err() {
-                                            return;
-                                        }
+                                    && tx.send(event).await.is_err()
+                                {
+                                    return;
+                                }
                             }
                         }
                         Err(e) => {
