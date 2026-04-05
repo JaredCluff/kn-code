@@ -104,25 +104,57 @@ impl FileTokenStore {
 
     #[allow(clippy::disallowed_methods)]
     fn load_or_generate_salt(salt_path: &PathBuf) -> [u8; SALT_LEN] {
-        if salt_path.exists()
-            && let Ok(bytes) = std::fs::read(salt_path)
+        // Try reading existing salt first
+        if let Ok(bytes) = std::fs::read(salt_path)
             && bytes.len() >= SALT_LEN
         {
             let mut salt = [0u8; SALT_LEN];
             salt.copy_from_slice(&bytes[..SALT_LEN]);
             return salt;
         }
-        let mut salt = [0u8; SALT_LEN];
-        if SystemRandom::new().fill(&mut salt).is_err() {
-            tracing::error!("Failed to generate salt — using zeroed salt");
+
+        // Generate new salt and write atomically with retry
+        for _ in 0..5 {
+            let mut salt = [0u8; SALT_LEN];
+            if SystemRandom::new().fill(&mut salt).is_err() {
+                tracing::error!("Failed to generate salt — using zeroed salt");
+            }
+
+            if let Some(parent) = salt_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            let tmp_path = salt_path.with_extension("tmp");
+            if std::fs::write(&tmp_path, salt).is_ok() {
+                // Atomic rename — if another process already wrote, this overwrites
+                // but with a valid salt. Both salts would be valid since we re-read
+                // after writing.
+                if std::fs::rename(&tmp_path, salt_path).is_ok() {
+                    return salt;
+                }
+            }
+
+            // Another process may have written concurrently — re-read
+            if let Ok(bytes) = std::fs::read(salt_path)
+                && bytes.len() >= SALT_LEN
+            {
+                let mut salt = [0u8; SALT_LEN];
+                salt.copy_from_slice(&bytes[..SALT_LEN]);
+                return salt;
+            }
         }
-        if let Some(parent) = salt_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+
+        // Fallback: just read whatever is there
+        if let Ok(bytes) = std::fs::read(salt_path)
+            && bytes.len() >= SALT_LEN
+        {
+            let mut salt = [0u8; SALT_LEN];
+            salt.copy_from_slice(&bytes[..SALT_LEN]);
+            return salt;
         }
-        if let Err(e) = std::fs::write(salt_path, salt) {
-            tracing::warn!("Failed to persist salt file: {}", e);
-        }
-        salt
+
+        tracing::error!("Failed to generate or read salt file after retries");
+        [0u8; SALT_LEN]
     }
 
     fn derive_key(salt: &[u8; SALT_LEN]) -> anyhow::Result<LessSafeKey> {

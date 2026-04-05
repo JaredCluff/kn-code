@@ -30,14 +30,10 @@ struct SubscriptionHandle {
 
 impl Drop for SubscriptionManager {
     fn drop(&mut self) {
-        let subscriptions = self.subscriptions.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let mut subs = subscriptions.write().await;
-                for (_, handle) in subs.drain() {
-                    handle.task.abort();
-                }
-            });
+        if let Ok(mut subs) = self.subscriptions.try_write() {
+            for (_, handle) in subs.drain() {
+                handle.task.abort();
+            }
         }
     }
 }

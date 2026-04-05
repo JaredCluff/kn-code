@@ -307,14 +307,10 @@ impl Tool for BashTool {
 
 impl Drop for BashTool {
     fn drop(&mut self) {
-        let background_tasks = self.background_tasks.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let mut tasks = background_tasks.lock().await;
-                for mut task in tasks.drain(..) {
-                    let _ = task.child.kill().await;
-                }
-            });
+        if let Ok(mut tasks) = self.background_tasks.try_lock() {
+            for mut task in tasks.drain(..) {
+                let _ = task.child.start_kill();
+            }
         }
     }
 }

@@ -156,14 +156,10 @@ impl NatsTransport {
 
 impl Drop for NatsTransport {
     fn drop(&mut self) {
-        let tasks = self.tasks.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let mut t = tasks.write().await;
-                for task in t.drain(..) {
-                    task.abort();
-                }
-            });
+        if let Ok(mut tasks) = self.tasks.try_write() {
+            for task in tasks.drain(..) {
+                task.abort();
+            }
         }
     }
 }

@@ -1,13 +1,21 @@
+use axum::extract::Query;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::Response;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use futures::{SinkExt, StreamExt};
 use kn_code_session::SessionStore;
+use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 const MAX_WS_MESSAGE_SIZE: usize = 64 * 1024;
 const WS_IDLE_TIMEOUT_SECS: u64 = 300;
 const MAX_WS_MESSAGES_PER_MINUTE: usize = 120;
+
+#[derive(Deserialize)]
+pub struct WsAuthQuery {
+    pub token: Option<String>,
+}
 
 pub struct WsState {
     pub session_store: Arc<SessionStore>,
@@ -17,25 +25,41 @@ pub struct WsState {
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     state: axum::extract::State<Arc<WsState>>,
+    Query(query): Query<WsAuthQuery>,
 ) -> Response {
     let state = state.0;
     let jwt_auth = state.jwt_auth.clone();
 
-    if jwt_auth.is_some() {
-        ws.on_failed_upgrade(|_| {
-            tracing::warn!("WebSocket upgrade failed — authentication required");
-        })
-        .on_upgrade(move |socket| handle_socket(socket, state, jwt_auth))
-    } else {
-        ws.on_upgrade(move |socket| handle_socket(socket, state, None))
+    if let Some(ref auth) = jwt_auth {
+        let token = match query.token {
+            Some(t) => t,
+            None => {
+                tracing::warn!("WebSocket connection rejected: missing token");
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    axum::Json(serde_json::json!({
+                        "error": "Missing token query parameter. Connect to /v1/ws?token=YOUR_JWT_TOKEN"
+                    })),
+                ).into_response();
+            }
+        };
+
+        if let Err(e) = auth.validate(&token) {
+            tracing::warn!("WebSocket authentication failed: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({
+                    "error": "Invalid token"
+                })),
+            )
+                .into_response();
+        }
     }
+
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(
-    socket: WebSocket,
-    state: Arc<WsState>,
-    _jwt_auth: Option<Arc<crate::middleware::auth::JwtAuth>>,
-) {
+async fn handle_socket(socket: WebSocket, state: Arc<WsState>) {
     let (mut sender, mut receiver) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Message>(100);
 
