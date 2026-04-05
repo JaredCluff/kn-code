@@ -428,11 +428,11 @@ impl Provider for OpenAIProvider {
 
         if let Some(temp) = request.temperature {
             body["temperature"] =
-                serde_json::Value::Number(serde_json::Number::from_f64(temp as f64).unwrap());
+                serde_json::json!(temp);
         }
         if let Some(top_p) = request.top_p {
             body["top_p"] =
-                serde_json::Value::Number(serde_json::Number::from_f64(top_p as f64).unwrap());
+                serde_json::json!(top_p);
         }
 
         let url = format!("{}/chat/completions", provider.base_url);

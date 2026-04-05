@@ -140,6 +140,7 @@ impl Server {
             session_store: session_store.clone(),
             token_store: token_store.clone(),
             tools,
+            running_sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         });
 
         let models_state = Arc::new(models::ModelsState {

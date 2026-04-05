@@ -3,6 +3,7 @@ use futures::StreamExt;
 use kn_code_nats::{NatsConfig, NatsConnection, Publisher};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 pub struct NatsTransport {
     pub config: NatsConfig,
@@ -11,6 +12,7 @@ pub struct NatsTransport {
     pub subject_prefix: String,
     pub instance_id: String,
     pub tasks: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
+    pub cancel_token: CancellationToken,
 }
 
 impl NatsTransport {
@@ -27,6 +29,7 @@ impl NatsTransport {
             subject_prefix,
             instance_id,
             tasks: Arc::new(RwLock::new(Vec::new())),
+            cancel_token: CancellationToken::new(),
         }
     }
 
@@ -73,18 +76,34 @@ impl NatsTransport {
 
         let instance_id = self.instance_id.clone();
         let tasks = self.tasks.clone();
+        let cancel = self.cancel_token.clone();
 
         let task = tokio::spawn(async move {
-            while let Some(msg) = subscriber.next().await {
-                let text = String::from_utf8_lossy(&msg.payload);
-                tracing::debug!(
-                    "NATS message on {} (instance {}): {}",
-                    msg.subject,
-                    instance_id,
-                    text
-                );
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        tracing::debug!("NATS subscription cancelled: {}", subject_owned);
+                        break;
+                    }
+                    msg = subscriber.next() => {
+                        match msg {
+                            Some(msg) => {
+                                let text = String::from_utf8_lossy(&msg.payload);
+                                tracing::debug!(
+                                    "NATS message on {} (instance {}): {}",
+                                    msg.subject,
+                                    instance_id,
+                                    text
+                                );
+                            }
+                            None => {
+                                tracing::debug!("NATS subscription ended: {}", subject_owned);
+                                break;
+                            }
+                        }
+                    }
+                }
             }
-            tracing::debug!("NATS subscription ended: {}", subject_owned);
         });
 
         tasks.write().await.push(task);
@@ -107,23 +126,43 @@ impl NatsTransport {
 
         let instance_id = self.instance_id.clone();
         let tasks = self.tasks.clone();
+        let cancel = self.cancel_token.clone();
 
         let task = tokio::spawn(async move {
-            while let Some(msg) = subscriber.next().await {
-                let text = String::from_utf8_lossy(&msg.payload);
-                tracing::debug!(
-                    "NATS queue message on {} (instance {}, group {}): {}",
-                    msg.subject,
-                    instance_id,
-                    queue_group_owned,
-                    text
-                );
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        tracing::debug!(
+                            "NATS queue subscription cancelled: {} group {}",
+                            subject_owned,
+                            queue_group_owned
+                        );
+                        break;
+                    }
+                    msg = subscriber.next() => {
+                        match msg {
+                            Some(msg) => {
+                                let text = String::from_utf8_lossy(&msg.payload);
+                                tracing::debug!(
+                                    "NATS queue message on {} (instance {}, group {}): {}",
+                                    msg.subject,
+                                    instance_id,
+                                    queue_group_owned,
+                                    text
+                                );
+                            }
+                            None => {
+                                tracing::debug!(
+                                    "NATS queue subscription ended: {} group {}",
+                                    subject_owned,
+                                    queue_group_owned
+                                );
+                                break;
+                            }
+                        }
+                    }
+                }
             }
-            tracing::debug!(
-                "NATS queue subscription ended: {} group {}",
-                subject_owned,
-                queue_group_owned
-            );
         });
 
         tasks.write().await.push(task);
@@ -145,6 +184,7 @@ impl NatsTransport {
     }
 
     pub async fn disconnect(&self) {
+        self.cancel_token.cancel();
         let mut tasks = self.tasks.write().await;
         for task in tasks.drain(..) {
             task.abort();
@@ -156,6 +196,7 @@ impl NatsTransport {
 
 impl Drop for NatsTransport {
     fn drop(&mut self) {
+        self.cancel_token.cancel();
         if let Ok(mut tasks) = self.tasks.try_write() {
             for task in tasks.drain(..) {
                 task.abort();

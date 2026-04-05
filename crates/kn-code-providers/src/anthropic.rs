@@ -423,7 +423,7 @@ impl Provider for AnthropicProvider {
 
         if let Some(temp) = request.temperature {
             body["temperature"] =
-                serde_json::Value::Number(serde_json::Number::from_f64(temp as f64).unwrap());
+                serde_json::json!(temp);
         }
 
         let extra = self.extra_body_params(&request);

@@ -140,7 +140,7 @@ impl AudioRecorder {
                 .map_err(|e| anyhow::anyhow!("Failed to start stream: {}", e))?;
 
             let mut samples = Vec::new();
-            let mut silence_start = None;
+            let mut silence_start: Option<std::time::Instant> = None;
             let start_time = std::time::Instant::now();
 
             loop {
@@ -154,12 +154,12 @@ impl AudioRecorder {
 
                         if amplitude > silence_threshold {
                             silence_start = None;
-                        } else if silence_start.is_none() {
+                        } else if let Some(start) = silence_start {
+                            if start.elapsed().as_millis() >= silence_duration_ms as u128 {
+                                break;
+                            }
+                        } else {
                             silence_start = Some(std::time::Instant::now());
-                        } else if silence_start.unwrap().elapsed().as_millis()
-                            >= silence_duration_ms as u128
-                        {
-                            break;
                         }
 
                         samples.push(sample);

@@ -138,13 +138,6 @@ pub struct NatsSubscribeTool {
     pub connection: NatsConnection,
 }
 
-#[derive(Debug, Deserialize)]
-struct NatsSubscribeInput {
-    subject: String,
-    #[serde(default)]
-    queue_group: Option<String>,
-}
-
 #[async_trait::async_trait]
 impl Tool for NatsSubscribeTool {
     fn name(&self) -> &str {
@@ -174,47 +167,15 @@ impl Tool for NatsSubscribeTool {
 
     async fn call(
         &self,
-        input: serde_json::Value,
+        _input: serde_json::Value,
         _context: ToolContext,
     ) -> Result<ToolResult, ToolError> {
-        let parsed: NatsSubscribeInput =
-            serde_json::from_value(input.clone()).map_err(|e| ToolError::ValidationFailed {
-                message: e.to_string(),
-            })?;
-
-        kn_code_nats::subjects::validate_subject("nats_subscribe", &parsed.subject)
-            .map_err(|e| ToolError::ValidationFailed { message: e })?;
-
-        if let Some(qg) = &parsed.queue_group
-            && qg.len() > 128 {
-                return Err(ToolError::ValidationFailed {
-                    message: "Queue group name too long (max 128 chars)".to_string(),
-                });
-            }
-
-        let manager = kn_code_nats::SubscriptionManager::new(self.connection.clone());
-        let (id, _rx) = if let Some(qg) = &parsed.queue_group {
-            manager
-                .subscribe_with_queue_group(&parsed.subject, qg, 100)
-                .await
-        } else {
-            manager.subscribe(&parsed.subject, 100).await
-        }
-        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
-
-        Ok(ToolResult {
-            content: ToolContent::Text(
-                serde_json::to_string(&serde_json::json!({
-                    "subscription_id": id,
-                    "subject": parsed.subject,
-                }))
-                .unwrap_or_default(),
-            ),
-            new_messages: Vec::new(),
-            persisted: false,
-            persisted_path: None,
-            structured_content: None,
-        })
+        Err(ToolError::ExecutionFailed(
+            "NATS subscribe tool is not yet fully implemented. \
+             Subscriptions require a message consumer tool to be useful. \
+             Use the NATS request tool for request-response patterns instead."
+                .to_string(),
+        ))
     }
 }
 

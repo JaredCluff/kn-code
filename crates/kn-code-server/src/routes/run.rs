@@ -86,6 +86,7 @@ pub struct RunState {
     pub session_store: Arc<SessionStore>,
     pub token_store: Arc<FileTokenStore>,
     pub tools: Vec<Arc<dyn Tool>>,
+    pub running_sessions: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
 }
 
 pub async fn run_agent(
@@ -180,6 +181,7 @@ pub async fn run_agent(
     let session_store = state.0.session_store.clone();
     let token_store = state.0.token_store.clone();
     let tools = state.0.tools.clone();
+    let running_sessions = state.0.running_sessions.clone();
     let permission_mode = match req.permission_mode.as_deref() {
         Some("auto") => PermissionMode::Auto,
         Some("ask") => PermissionMode::Ask,
@@ -191,6 +193,23 @@ pub async fn run_agent(
     let cwd_clone = cwd.clone();
     let model_clone = model.clone();
     let session_store_for_runner = session_store.clone();
+
+    {
+        let running = running_sessions.read().await;
+        if running.contains(&session_id) {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": format!("Session {} is already running", session_id),
+                })),
+            );
+        }
+    }
+
+    {
+        let mut running = running_sessions.write().await;
+        running.insert(session_id.clone());
+    }
 
     tokio::spawn(async move {
         let Some((provider, model_info)) = resolve_provider(&model_clone) else {
@@ -233,6 +252,8 @@ pub async fn run_agent(
                     .await;
             }
         }
+
+        let _ = running_sessions.write().await.remove(&session_id_clone);
     });
 
     (

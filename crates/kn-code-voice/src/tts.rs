@@ -104,8 +104,11 @@ impl TextToSpeech {
     async fn synthesize_system(&self, text: &str, output: &Path) -> anyhow::Result<PathBuf> {
         #[cfg(target_os = "macos")]
         {
+            let output_str = output
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Output path contains invalid UTF-8"))?;
             let result = tokio::process::Command::new("say")
-                .args(["-o", output.to_str().unwrap(), text])
+                .args(["-o", output_str, text])
                 .output()
                 .await?;
             if !result.status.success() {
