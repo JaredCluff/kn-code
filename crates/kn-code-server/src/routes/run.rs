@@ -1,8 +1,13 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use kn_code_auth::FileTokenStore;
+use kn_code_permissions::rules::PermissionMode;
+use kn_code_providers::anthropic::AnthropicProvider;
 use kn_code_session::SessionStore;
 use kn_code_session::messages::{ContentBlock, Message, UserMessage};
+use kn_code_session::runner::AgentRunner;
+use kn_code_tools::traits::Tool;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -79,6 +84,8 @@ pub struct ErrorResponse {
 
 pub struct RunState {
     pub session_store: Arc<SessionStore>,
+    pub token_store: Arc<FileTokenStore>,
+    pub tools: Vec<Arc<dyn Tool>>,
 }
 
 pub async fn run_agent(
@@ -99,6 +106,25 @@ pub async fn run_agent(
         .cwd
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+    if !cwd.is_absolute() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "cwd must be an absolute path",
+            })),
+        );
+    }
+
+    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    if !cwd.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("cwd does not exist: {}", cwd.display()),
+            })),
+        );
+    }
     let model = req
         .model
         .as_deref()
@@ -151,14 +177,62 @@ pub async fn run_agent(
         }
     }
 
+    let session_store = state.0.session_store.clone();
+    let token_store = state.0.token_store.clone();
+    let tools = state.0.tools.clone();
+    let permission_mode = match req.permission_mode.as_deref() {
+        Some("auto") => PermissionMode::Auto,
+        Some("ask") => PermissionMode::Ask,
+        Some("bypass") => PermissionMode::BypassPermissions,
+        _ => PermissionMode::BypassPermissions,
+    };
+    let max_turns = req.max_turns.unwrap_or(50);
+    let session_id_clone = session_id.clone();
+    let cwd_clone = cwd.clone();
+    let session_store_for_runner = session_store.clone();
+
+    tokio::spawn(async move {
+        let provider = Arc::new(AnthropicProvider::default());
+        let runner = AgentRunner {
+            session_store: session_store_for_runner,
+            token_store,
+            provider,
+            tools,
+            permission_mode,
+            max_turns,
+            cwd: cwd_clone,
+            model_info: None,
+            cancellation_token: None,
+        };
+
+        match runner.run(&session_id_clone).await {
+            Ok(result) => {
+                tracing::info!(
+                    "Agent run completed: session={}, turns={}, stop={}, tokens_in={}, tokens_out={}",
+                    result.session_id,
+                    result.turns_completed,
+                    result.stop_reason,
+                    result.input_tokens,
+                    result.output_tokens,
+                );
+            }
+            Err(e) => {
+                tracing::error!("Agent run failed for session {}: {}", session_id_clone, e);
+                let _ = session_store
+                    .update_session_state(&session_id_clone, "error")
+                    .await;
+            }
+        }
+    });
+
     (
         StatusCode::ACCEPTED,
         Json(serde_json::json!({
             "session_id": session_id,
-            "status": "accepted",
+            "status": "running",
             "model": model,
             "cwd": cwd.to_string_lossy(),
-            "message": "Session created and prompt queued for processing",
+            "message": "Agent started",
         })),
     )
 }

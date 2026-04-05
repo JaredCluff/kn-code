@@ -4,7 +4,17 @@ use axum::{
     middleware,
     routing::{get, post},
 };
+use kn_code_auth::FileTokenStore;
+use kn_code_config::Settings;
 use kn_code_session::SessionStore;
+use kn_code_tools::bash::BashTool;
+use kn_code_tools::file_edit::FileEditTool;
+use kn_code_tools::file_read::FileReadTool;
+use kn_code_tools::file_write::FileWriteTool;
+use kn_code_tools::glob::GlobTool;
+use kn_code_tools::grep::GrepTool;
+use kn_code_tools::traits::Tool;
+use kn_code_tools::web_fetch::WebFetchTool;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -112,8 +122,24 @@ impl Server {
             session_store: session_store.clone(),
         });
 
+        let token_store = Arc::new(FileTokenStore::new(
+            Settings::config_dir().join("tokens.enc"),
+        ));
+
+        let tools: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(BashTool::default()),
+            Arc::new(FileReadTool),
+            Arc::new(FileWriteTool),
+            Arc::new(FileEditTool),
+            Arc::new(GlobTool),
+            Arc::new(GrepTool),
+            Arc::new(WebFetchTool),
+        ];
+
         let run_state = Arc::new(run::RunState {
             session_store: session_store.clone(),
+            token_store,
+            tools,
         });
 
         let public_routes = Router::new()

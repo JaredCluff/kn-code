@@ -79,24 +79,38 @@ impl AnthropicProvider {
         Err(last_error.unwrap_or_else(|| ProviderError::Internal("Unknown error".to_string())))
     }
 
-    fn build_messages(&self, request: &ChatRequest) -> Vec<serde_json::Value> {
-        request
-            .messages
-            .iter()
-            .map(|msg| match &msg.role {
-                MessageRole::User => serde_json::json!({
-                    "role": "user",
-                    "content": msg.content.iter().map(|c| match c {
-                        ContentBlock::Text(t) => serde_json::json!({"type": "text", "text": t}),
-                        ContentBlock::ToolResult { id, content, is_error } => serde_json::json!({
-                            "type": "tool_result",
-                            "tool_use_id": id,
-                            "content": content,
-                            "is_error": is_error,
-                        }),
-                        _ => serde_json::json!({"type": "text", "text": ""}),
-                    }).collect::<Vec<_>>(),
-                }),
+    fn build_messages(&self, request: &ChatRequest) -> (Vec<serde_json::Value>, Vec<String>) {
+        let mut messages = Vec::new();
+        let mut system_texts = Vec::new();
+
+        if let Some(system) = &request.system {
+            system_texts.push(system.clone());
+        }
+
+        for msg in &request.messages {
+            match &msg.role {
+                MessageRole::System => {
+                    for block in &msg.content {
+                        if let ContentBlock::Text(t) = block {
+                            system_texts.push(t.clone());
+                        }
+                    }
+                }
+                MessageRole::User => {
+                    messages.push(serde_json::json!({
+                        "role": "user",
+                        "content": msg.content.iter().map(|c| match c {
+                            ContentBlock::Text(t) => serde_json::json!({"type": "text", "text": t}),
+                            ContentBlock::ToolResult { id, content, is_error } => serde_json::json!({
+                                "type": "tool_result",
+                                "tool_use_id": id,
+                                "content": content,
+                                "is_error": is_error,
+                            }),
+                            _ => serde_json::json!({"type": "text", "text": ""}),
+                        }).collect::<Vec<_>>(),
+                    }));
+                }
                 MessageRole::Assistant => {
                     let mut content = Vec::new();
                     for block in &msg.content {
@@ -119,38 +133,32 @@ impl AnthropicProvider {
                             _ => {}
                         }
                     }
-                    serde_json::json!({
+                    messages.push(serde_json::json!({
                         "role": "assistant",
                         "content": content,
-                    })
+                    }));
                 }
-                MessageRole::System => serde_json::json!({
-                    "role": "user",
-                    "content": msg.content.iter().filter_map(|c| {
-                        if let ContentBlock::Text(t) = c {
-                            Some(serde_json::json!({"type": "text", "text": t}))
-                        } else {
-                            None
-                        }
-                    }).collect::<Vec<_>>(),
-                }),
-                MessageRole::Tool => serde_json::json!({
-                    "role": "user",
-                    "content": msg.content.iter().filter_map(|c| {
-                        if let ContentBlock::ToolResult { id, content, is_error } = c {
-                            Some(serde_json::json!({
-                                "type": "tool_result",
-                                "tool_use_id": id,
-                                "content": content,
-                                "is_error": is_error,
-                            }))
-                        } else {
-                            None
-                        }
-                    }).collect::<Vec<_>>(),
-                }),
-            })
-            .collect()
+                MessageRole::Tool => {
+                    messages.push(serde_json::json!({
+                        "role": "user",
+                        "content": msg.content.iter().filter_map(|c| {
+                            if let ContentBlock::ToolResult { id, content, is_error } = c {
+                                Some(serde_json::json!({
+                                    "type": "tool_result",
+                                    "tool_use_id": id,
+                                    "content": content,
+                                    "is_error": is_error,
+                                }))
+                            } else {
+                                None
+                            }
+                        }).collect::<Vec<_>>(),
+                    }));
+                }
+            }
+        }
+
+        (messages, system_texts)
     }
 
     fn build_tools(&self, tools: &[ToolDefinition]) -> Vec<serde_json::Value> {
@@ -347,7 +355,7 @@ impl Provider for AnthropicProvider {
         credentials: &Credentials,
     ) -> Result<ChatResponse, ProviderError> {
         let provider = self.build_client(credentials)?;
-        let messages = self.build_messages(&request);
+        let (messages, system_texts) = self.build_messages(&request);
         let tools = request.tools.as_ref().map(|t| self.build_tools(t));
 
         let mut body = serde_json::json!({
@@ -360,10 +368,10 @@ impl Provider for AnthropicProvider {
             body["tools"] = serde_json::Value::Array(tools);
         }
 
-        if let Some(system) = &request.system {
+        if !system_texts.is_empty() {
             body["system"] = serde_json::json!([{
                 "type": "text",
-                "text": system,
+                "text": system_texts.join("\n"),
                 "cache_control": { "type": "ephemeral" }
             }]);
         }
@@ -379,11 +387,12 @@ impl Provider for AnthropicProvider {
 
         let extra = self.extra_body_params(&request);
         if let Some(obj) = extra.as_object()
-            && let Some(body_obj) = body.as_object_mut() {
-                for (k, v) in obj {
-                    body_obj.insert(k.clone(), v.clone());
-                }
+            && let Some(body_obj) = body.as_object_mut()
+        {
+            for (k, v) in obj {
+                body_obj.insert(k.clone(), v.clone());
             }
+        }
 
         let url = format!("{}/v1/messages", provider.base_url);
 
@@ -425,7 +434,7 @@ impl Provider for AnthropicProvider {
         credentials: &Credentials,
     ) -> Result<ChatStream, ProviderError> {
         let provider = self.build_client(credentials)?;
-        let messages = self.build_messages(&request);
+        let (messages, system_texts) = self.build_messages(&request);
         let tools = request.tools.as_ref().map(|t| self.build_tools(t));
 
         let mut body = serde_json::json!({
@@ -439,10 +448,10 @@ impl Provider for AnthropicProvider {
             body["tools"] = serde_json::Value::Array(tools);
         }
 
-        if let Some(system) = &request.system {
+        if !system_texts.is_empty() {
             body["system"] = serde_json::json!([{
                 "type": "text",
-                "text": system,
+                "text": system_texts.join("\n"),
                 "cache_control": { "type": "ephemeral" }
             }]);
         }
@@ -546,9 +555,10 @@ impl Provider for AnthropicProvider {
                                     event_lines.push(trimmed.to_string());
                                 } else if trimmed.is_empty() && !event_lines.is_empty() {
                                     if let Some(event) = Self::parse_stream_event(&event_lines)
-                                        && tx.send(event).await.is_err() {
-                                            return;
-                                        }
+                                        && tx.send(event).await.is_err()
+                                    {
+                                        return;
+                                    }
                                     event_lines.clear();
                                 }
                             }
@@ -561,9 +571,10 @@ impl Provider for AnthropicProvider {
                 }
 
                 if !event_lines.is_empty()
-                    && let Some(event) = Self::parse_stream_event(&event_lines) {
-                        let _ = tx.send(event).await;
-                    }
+                    && let Some(event) = Self::parse_stream_event(&event_lines)
+                {
+                    let _ = tx.send(event).await;
+                }
 
                 return;
             }

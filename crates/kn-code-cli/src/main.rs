@@ -1,4 +1,6 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(
@@ -149,8 +151,8 @@ async fn cmd_run(
     session: Option<String>,
     model: Option<String>,
     _variant: Option<String>,
-    _permission_mode: Option<String>,
-    _max_turns: Option<u64>,
+    permission_mode: Option<String>,
+    max_turns: Option<u64>,
     print: Option<String>,
 ) -> anyhow::Result<()> {
     let prompt = match (prompt, print) {
@@ -166,36 +168,125 @@ async fn cmd_run(
     };
 
     let is_json = format.as_deref() == Some("json");
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let model_str = model
+        .as_deref()
+        .unwrap_or("anthropic/claude-sonnet-4-5")
+        .to_string();
+
+    let session_store = Arc::new(kn_code_session::SessionStore::new(
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join(".kn-code")
+            .join("sessions"),
+    ));
+
+    let session_id = if let Some(id) = session {
+        id
+    } else {
+        let record = session_store
+            .create_session(cwd.clone(), model_str.clone())
+            .await?;
+        record.id
+    };
+
+    let message =
+        kn_code_session::messages::Message::User(kn_code_session::messages::UserMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            content: vec![kn_code_session::messages::ContentBlock::Text(
+                prompt.clone(),
+            )],
+            timestamp: chrono::Utc::now(),
+        });
+
+    session_store.append_message(&session_id, &message).await?;
+
+    let token_store = Arc::new(kn_code_auth::FileTokenStore::new(
+        kn_code_config::Settings::config_dir().join("tokens.enc"),
+    ));
+
+    let tools: Vec<Arc<dyn kn_code_tools::traits::Tool>> = vec![
+        Arc::new(kn_code_tools::bash::BashTool::default()),
+        Arc::new(kn_code_tools::file_read::FileReadTool),
+        Arc::new(kn_code_tools::file_write::FileWriteTool),
+        Arc::new(kn_code_tools::file_edit::FileEditTool),
+        Arc::new(kn_code_tools::glob::GlobTool),
+        Arc::new(kn_code_tools::grep::GrepTool),
+        Arc::new(kn_code_tools::web_fetch::WebFetchTool),
+    ];
+
+    let perm_mode = match permission_mode.as_deref() {
+        Some("auto") => kn_code_permissions::rules::PermissionMode::Auto,
+        Some("ask") => kn_code_permissions::rules::PermissionMode::Ask,
+        _ => kn_code_permissions::rules::PermissionMode::BypassPermissions,
+    };
+
+    let provider = Arc::new(kn_code_providers::anthropic::AnthropicProvider::default());
+    let runner = kn_code_session::runner::AgentRunner {
+        session_store: session_store.clone(),
+        token_store,
+        provider,
+        tools,
+        permission_mode: perm_mode,
+        max_turns: max_turns.unwrap_or(50),
+        cwd,
+        model_info: None,
+        cancellation_token: None,
+    };
 
     if is_json {
-        let session_id = session.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let init_event = serde_json::json!({
             "type": "system",
             "subtype": "init",
             "session_id": session_id,
-            "model": model.as_deref().unwrap_or("anthropic/claude-sonnet-4-5"),
+            "model": model_str,
         });
         println!("{}", serde_json::to_string(&init_event)?);
-
-        let text_event = serde_json::json!({
-            "type": "text",
-            "content": format!("Received prompt: {}", prompt),
-        });
-        println!("{}", serde_json::to_string(&text_event)?);
-
-        let result_event = serde_json::json!({
-            "type": "result",
-            "subtype": "success",
-            "session_id": session_id,
-            "usage": {
-                "input_tokens": 0,
-                "output_tokens": 0,
-            },
-            "cost_usd": 0.0,
-        });
-        println!("{}", serde_json::to_string(&result_event)?);
     } else {
-        println!("Prompt: {}", prompt);
+        println!("Starting agent session: {}", session_id);
+        println!("Model: {}", model_str);
+        println!("---");
+    }
+
+    match runner.run(&session_id).await {
+        Ok(result) => {
+            if is_json {
+                let result_event = serde_json::json!({
+                    "type": "result",
+                    "subtype": result.stop_reason,
+                    "session_id": result.session_id,
+                    "turns_completed": result.turns_completed,
+                    "usage": {
+                        "input_tokens": result.input_tokens,
+                        "output_tokens": result.output_tokens,
+                    },
+                    "cost_usd": result.cost_usd,
+                });
+                println!("{}", serde_json::to_string(&result_event)?);
+            } else {
+                println!("---");
+                println!("Session completed: {}", session_id);
+                println!("Turns: {}", result.turns_completed);
+                println!("Stop reason: {}", result.stop_reason);
+                println!(
+                    "Tokens: {} in, {} out",
+                    result.input_tokens, result.output_tokens
+                );
+            }
+        }
+        Err(e) => {
+            if is_json {
+                let error_event = serde_json::json!({
+                    "type": "error",
+                    "session_id": session_id,
+                    "error": e.to_string(),
+                });
+                println!("{}", serde_json::to_string(&error_event)?);
+            } else {
+                eprintln!("Agent run failed: {}", e);
+            }
+            std::process::exit(1);
+        }
     }
 
     Ok(())
@@ -281,7 +372,6 @@ async fn cmd_auth(command: AuthCommands) -> anyhow::Result<()> {
 
 async fn cmd_session(command: Option<SessionCommands>) -> anyhow::Result<()> {
     use kn_code_session::SessionStore;
-    use std::path::PathBuf;
 
     let store_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))

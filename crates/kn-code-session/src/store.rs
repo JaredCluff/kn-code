@@ -130,10 +130,52 @@ impl SessionStore {
             return Ok(Vec::new());
         }
         let content = tokio::fs::read_to_string(&path).await?;
+        let mut malformed = 0u64;
         let messages = content
             .lines()
-            .filter_map(|line| serde_json::from_str(line).ok())
+            .filter_map(|line| match serde_json::from_str(line) {
+                Ok(msg) => Some(msg),
+                Err(e) => {
+                    malformed += 1;
+                    tracing::warn!(
+                        session_id,
+                        error = %e,
+                        "Skipping malformed message line in session transcript"
+                    );
+                    None
+                }
+            })
             .collect();
+        if malformed > 0 {
+            tracing::warn!(
+                session_id,
+                malformed,
+                "Skipped malformed message lines — session history may be incomplete"
+            );
+        }
         Ok(messages)
+    }
+
+    pub async fn update_session_state(&self, session_id: &str, state: &str) -> anyhow::Result<()> {
+        let lock = self.get_session_lock(session_id).await;
+        let _guard = lock.lock().await;
+        let dir = self.session_dir(session_id);
+        let session_json = dir.join("session.json");
+
+        if !session_json.exists() {
+            anyhow::bail!("Session not found: {}", session_id);
+        }
+
+        let content = tokio::fs::read_to_string(&session_json).await?;
+        let mut record: SessionRecord = serde_json::from_str(&content)?;
+        record.state = state.to_string();
+        record.updated_at = chrono::Utc::now();
+
+        let json = serde_json::to_string_pretty(&record)?;
+        let tmp_path = dir.join("session.json.tmp");
+        tokio::fs::write(&tmp_path, &json).await?;
+        tokio::fs::rename(&tmp_path, &session_json).await?;
+
+        Ok(())
     }
 }

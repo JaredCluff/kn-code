@@ -10,6 +10,7 @@ kn-code-config = { path = "../kn-code-config" }
 kn-code-auth = { path = "../kn-code-auth" }
 kn-code-providers = { path = "../kn-code-providers" }
 kn-code-tools = { path = "../kn-code-tools" }
+kn-code-permissions = { path = "../kn-code-permissions" }
 kn-code-nats = { path = "../kn-code-nats" }
 kn-code-session = { path = "../kn-code-session" }
 kn-code-voice = { path = "../kn-code-voice" }

@@ -16,6 +16,8 @@ kn-code-server = { path = "../kn-code-server" }
 kn-code-session = { path = "../kn-code-session" }
 kn-code-auth = { path = "../kn-code-auth" }
 kn-code-providers = { path = "../kn-code-providers" }
+kn-code-tools = { path = "../kn-code-tools" }
+kn-code-permissions = { path = "../kn-code-permissions" }
 clap.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -25,6 +27,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
 dirs.workspace = true
+chrono.workspace = true
 ratatui = { workspace = true, optional = true }
 crossterm = { workspace = true, optional = true }
 
