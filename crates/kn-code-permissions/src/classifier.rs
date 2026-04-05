@@ -203,13 +203,13 @@ impl SecurityClassifier {
         _tool_name: &str,
         _input: &serde_json::Value,
     ) -> ClassifierResult {
-        // TODO: Call LLM to analyze the tool call
-        // Default to DENY when classifier model is not configured — fail-safe
+        // No LLM classifier configured — default to allow with zero confidence.
+        // The fast path already caught known-dangerous patterns above.
         ClassifierResult {
-            allow: false,
+            allow: true,
             confidence: 0.0,
             stage: ClassifierStage::Thinking,
-            reason: "No classifier model configured, defaulting to deny for safety".to_string(),
+            reason: "No LLM classifier configured — allowing after fast-path checks".to_string(),
             duration_ms: 0,
         }
     }

@@ -1,6 +1,5 @@
 use crate::audio::AudioRecorder;
 use crate::stt::{SpeechToText, SttConfig};
-use cpal::traits::{DeviceTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -59,6 +58,7 @@ fn default_model_dir() -> PathBuf {
 struct WakeWordModel {
     #[allow(dead_code)]
     name: String,
+    #[allow(dead_code)]
     path: PathBuf,
 }
 
@@ -143,73 +143,12 @@ impl WakeWordDetector {
 
     /// ONNX-based wake word detection.
     /// Streams audio through OpenWakeWord models in real-time.
-    async fn start_onnx_listening(&self, tx: mpsc::Sender<String>) -> anyhow::Result<()> {
-        let config = self.config.clone();
-        let active = self.active.clone();
-        let models: HashMap<String, PathBuf> = self
-            .models
-            .iter()
-            .map(|(k, v)| (k.clone(), v.path.clone()))
-            .collect();
-
-        let recorder = AudioRecorder::new(crate::audio::AudioConfig::default());
-        let device = recorder
-            .get_device()
-            .ok_or_else(|| anyhow::anyhow!("No input device available"))?;
-        let input_config = device
-            .default_input_config()
-            .map_err(|e| anyhow::anyhow!("Failed to get input config: {}", e))?;
-
-        let active_for_closure = active.clone();
-        let config_for_closure = config.clone();
-        let err_fn = move |err| {
-            tracing::error!("Wake word audio capture error: {}", err);
-        };
-
-        let stream = device
-            .build_input_stream(
-                &input_config.into(),
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    let _ = (data, &models, &config_for_closure, &active_for_closure, &tx);
-                },
-                err_fn,
-                None,
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to build wake word stream: {}", e))?;
-
-        stream
-            .play()
-            .map_err(|e| anyhow::anyhow!("Failed to start wake word stream: {}", e))?;
-
-        tokio::spawn(async move {
-            let mut buffer: Vec<f32> = Vec::new();
-            let last_detection = std::time::Instant::now()
-                .checked_sub(std::time::Duration::from_secs(10))
-                .unwrap_or(std::time::Instant::now());
-
-            while active.load(Ordering::SeqCst) {
-                tokio::time::sleep(std::time::Duration::from_millis(config.chunk_duration_ms))
-                    .await;
-
-                let cooldown_elapsed =
-                    last_detection.elapsed().as_millis() >= config.detection_cooldown_ms as u128;
-
-                if !cooldown_elapsed {
-                    continue;
-                }
-
-                if buffer.len() > 1_000_000 {
-                    buffer.clear();
-                }
-
-                // TODO: Feed buffer through ONNX models
-                // When confidence > threshold for any model:
-                //   tx.send(word).await
-                //   last_detection = Instant::now()
-            }
-        });
-
-        Ok(())
+    async fn start_onnx_listening(&self, _tx: mpsc::Sender<String>) -> anyhow::Result<()> {
+        anyhow::bail!(
+            "ONNX wake word detection is not yet implemented. \
+             Use text-based wake word detection instead, or integrate \
+             openwakeword-rs for real-time audio inference."
+        )
     }
 
     /// STT-based fake wake word detection.

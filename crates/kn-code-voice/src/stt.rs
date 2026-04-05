@@ -66,16 +66,11 @@ impl SpeechToText {
     }
 
     async fn transcribe_local(&self, _audio_path: &Path) -> anyhow::Result<TranscriptionResult> {
-        // TODO: Integrate whisper.cpp via whisper-rs or whisper-rs bindings
-        // whisper.cpp runs locally, no API needed
-        // For now, return a placeholder
-        tracing::info!("Local Whisper transcription requested (not yet implemented)");
-        Ok(TranscriptionResult {
-            text: String::new(),
-            language: "en".to_string(),
-            segments: Vec::new(),
-            duration_ms: 0,
-        })
+        anyhow::bail!(
+            "Local Whisper transcription is not yet implemented. \
+             Use the API-based STT engine instead, or integrate \
+             whisper-rs for local whisper.cpp inference."
+        )
     }
 
     async fn transcribe_api(&self, audio_path: &Path) -> anyhow::Result<TranscriptionResult> {

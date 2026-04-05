@@ -68,22 +68,9 @@ impl Tool for LspTool {
 
         let action = parsed.action.as_deref().unwrap_or("diagnostics");
 
-        // TODO: Connect to actual LSP server
-        // For now, return a placeholder
-        Ok(ToolResult {
-            content: ToolContent::Text(format!(
-                "LSP {} requested for {:?} — LSP server integration not yet configured.",
-                action, parsed.file_path
-            )),
-            new_messages: Vec::new(),
-            persisted: false,
-            persisted_path: None,
-            structured_content: Some(serde_json::json!({
-                "action": action,
-                "file_path": parsed.file_path,
-                "status": "not_configured",
-                "diagnostics": [],
-            })),
-        })
+        Err(ToolError::ExecutionFailed(format!(
+            "LSP {} for {:?} — LSP server integration is not yet configured",
+            action, parsed.file_path
+        )))
     }
 }

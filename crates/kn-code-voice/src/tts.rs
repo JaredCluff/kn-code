@@ -72,9 +72,7 @@ impl TextToSpeech {
     }
 
     async fn synthesize_piper(&self, _text: &str, _output: &Path) -> anyhow::Result<PathBuf> {
-        // TODO: Integrate Piper TTS via piper-rs or subprocess
-        tracing::info!("Piper TTS synthesis requested (not yet implemented)");
-        Ok(_output.to_path_buf())
+        anyhow::bail!("Piper TTS engine is not yet implemented — use espeak or system TTS instead")
     }
 
     async fn synthesize_espeak(&self, text: &str, output: &Path) -> anyhow::Result<PathBuf> {

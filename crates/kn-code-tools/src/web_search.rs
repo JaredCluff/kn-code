@@ -12,6 +12,7 @@ impl Default for WebSearchTool {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct WebSearchInput {
     query: String,
     #[serde(default = "default_num_results")]
@@ -67,22 +68,9 @@ impl Tool for WebSearchTool {
                 message: e.to_string(),
             })?;
 
-        // TODO: Integrate with actual search API (provider's built-in search or external API)
-        // For now, return a placeholder indicating search is not yet configured
-        Ok(ToolResult {
-            content: ToolContent::Text(format!(
-                "Web search for '{}' — search integration not yet configured. \
-                 Configure a search API key to enable this tool.",
-                parsed.query
-            )),
-            new_messages: Vec::new(),
-            persisted: false,
-            persisted_path: None,
-            structured_content: Some(serde_json::json!({
-                "query": parsed.query,
-                "num_results": parsed.num_results,
-                "status": "not_configured",
-            })),
-        })
+        Err(ToolError::ExecutionFailed(format!(
+            "Web search for '{}' — search API integration is not yet configured",
+            parsed.query
+        )))
     }
 }
