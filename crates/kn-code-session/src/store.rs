@@ -192,4 +192,33 @@ impl SessionStore {
 
         Ok(())
     }
+
+    pub async fn update_session_stats(
+        &self,
+        session_id: &str,
+        turns_completed: u64,
+        cost_usd: f64,
+    ) -> anyhow::Result<()> {
+        let lock = self.get_session_lock(session_id).await;
+        let _guard = lock.lock().await;
+        let dir = self.session_dir(session_id);
+        let session_json = dir.join("session.json");
+
+        if !session_json.exists() {
+            return Ok(());
+        }
+
+        let content = tokio::fs::read_to_string(&session_json).await?;
+        let mut record: SessionRecord = serde_json::from_str(&content)?;
+        record.turns_completed = turns_completed;
+        record.cost_usd = cost_usd;
+        record.updated_at = chrono::Utc::now();
+
+        let json = serde_json::to_string_pretty(&record)?;
+        let tmp_path = dir.join("session.json.tmp");
+        tokio::fs::write(&tmp_path, &json).await?;
+        tokio::fs::rename(&tmp_path, &session_json).await?;
+
+        Ok(())
+    }
 }

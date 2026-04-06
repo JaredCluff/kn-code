@@ -400,13 +400,17 @@ impl AgentRunner {
         input_tokens: u64,
         output_tokens: u64,
     ) -> anyhow::Result<AgentRunResult> {
+        let cost = self.calculate_cost(input_tokens, output_tokens);
+        let _ = self
+            .session_store
+            .update_session_stats(session_id, turns_completed, cost);
         Ok(AgentRunResult {
             session_id: session_id.to_string(),
             stop_reason: stop_reason.to_string(),
             turns_completed,
             input_tokens,
             output_tokens,
-            cost_usd: self.calculate_cost(input_tokens, output_tokens),
+            cost_usd: cost,
         })
     }
 
